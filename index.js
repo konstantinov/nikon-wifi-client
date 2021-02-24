@@ -1,7 +1,4 @@
-import { throws } from 'assert';
 import { Socket } from 'net';
-import { resolve } from 'path';
-// import Str from 'sprintf-js';
 
 const MTP_TCPIP_REQ_INIT_CMD_REQ = '00000001';
 const MTP_TCPIP_REQ_INIT_EVENTS  = '00000003';
