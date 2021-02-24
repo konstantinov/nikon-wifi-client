@@ -8,13 +8,13 @@ const format = (string, len, fill = '0' ) => {
     const long = fill.repeat(len) + string;
 
     return long.substr(long.length - len);
-}
+};
 class NikonClient {
     dataListeners = [];
     msg = Buffer.from('');
     eventsMsg = Buffer.from('');
     constructor(settings = {}) {
-        this.settings = {
+        this.settings = {,
             guid: 'ffeeddccbbaa99887766554433221100',
             hostVersion: '00000001',
             hostName: 'NodeJS NikonOverWifi/1.0',
@@ -27,11 +27,10 @@ class NikonClient {
     }
     append(buffer, msg = this.msg) {
         return Buffer.concat([ msg, buffer.reverse() ]);
-        // console.log(msg);
     }
     send(socket = this.client, msg = this.msg) {
-        const length = msg.length + 4;
-        // console.log(msg);
+		const length = msg.length + 4;
+
         const buffer = Buffer.concat([
             Buffer.from(format(length.toString(16), 8), 'hex').reverse(),
             msg
@@ -62,7 +61,7 @@ class NikonClient {
             this.sessionId = this.getInt(data.slice(4));
             this.settings.verbose && console.log(`Session initialized sessionId = ${this.sessionId.toString(16)}`);
             resolve(this.sessionId);
-        })
+        });
     }
     handleEventsData(data) {
         console.log('Events data received ' + data.toString('hex'));
@@ -86,7 +85,7 @@ class NikonClient {
 
                 this.eventsMsg = this.append(Buffer.from(MTP_TCPIP_REQ_INIT_EVENTS, 'hex'), this.eventsMsg);
                 // console.log(this.events)
-                this.eventsMsg = this.append(Buffer.from(format(this.sessionId.toString(16), 8), 'hex'), this.eventsMsg)
+                this.eventsMsg = this.append(Buffer.from(format(this.sessionId.toString(16), 8), 'hex'), this.eventsMsg);
 
                 this.eventsMsg = this.send(this.eventsClient, this.eventsMsg);
 
