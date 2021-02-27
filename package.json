@@ -4,8 +4,10 @@
   "description": "Wireless photo transfer utility",
   "main": "index.js",
   "scripts": {
-    "test": "cd test; mocha"
+    "test": "cd test; mocha",
+    "test:device": "node device.js"
   },
+  "type": "module",
   "author": "Dmitry Konstantinov <konstantinov.dmitry@gmail.com>",
   "license": "MIT",
   "dependencies": {},
