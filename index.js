@@ -1,11 +1,26 @@
 import { Socket } from 'net';
 
-const MTP_TCPIP_REQ_INIT_CMD_REQ = '00000001';
-const MTP_TCPIP_REQ_INIT_EVENTS  = '00000003';
-const MTP_TCPIP_REQ_PROBE        = '0000000d';
-const MTP_OP_GET_DEVICE_INFO     = '00001001';
+const MTP_TCPIP_REQ_INIT_CMD_REQ           = '00000001';
+const MTP_TCPIP_REQ_INIT_EVENTS            = '00000003';
+const MTP_TCPIP_REQ_PROBE                  = '0000000d';
+
+const MTP_TCPIP_PAYLOAD_ID_COMMAND_REQUEST   = '00000006';
+const MTP_TCPIP_PAYLOAD_ID_COMMAND_RESPONSE  = '00000007';
+const MTP_TCPIP_PAYLOAD_ID_DATA_PAYLOAD      = '0000000a';
+const MTP_TCPIP_PAYLOAD_ID_DATA_PAYLOAD_LAST = '0000000c';
+
+const MTP_OP_GET_DEVICE_INFO     = '1001';
+
 const SESSION_ACK               = 2;
 const PROBES_ACK = '0e';
+
+const MTP_DATA_DIRECTION_NONE				= '00000000';
+const MTP_DATA_DIRECTION_CAMERA_TO_HOST     = '00000001';
+const MTP_DATA_DIRECTION_HOST_TO_CAMERA     = '00000002';
+
+const REQUEST_DATA_DIRECTION = {
+    [MTP_OP_GET_DEVICE_INFO]: MTP_DATA_DIRECTION_CAMERA_TO_HOST,
+};
 
 const format = (string, len, fill = '0' ) => {
     const long = fill.repeat(len) + string;
@@ -44,19 +59,14 @@ class NikonClient {
 
         msg = Buffer.from('');
 
-        // console.log('Sending ' + buffer.toString());
-        // console.log(buffer);
-        // console.log('<Buffer 2a 00 00 00 01 00 00 00 00 11 22 33 44 55 66 77 88 99 aa bb cc dd ee ff 61 00 69 00 72 00 6e 00 65 00 66 00 00 00 01 00 00 00>');
-        // this.lastAnswer = Buffer.from('');
-        this.settings.verbose && console.log(`Sending ${buffer.toString('hex'    )}`);
+        this.settings.verbose && console.log('Sending', buffer);
         socket.write(buffer);
 
     }
     parseSession(data) {
         return new Promise((resolve, reject) => {
-            // console.log(data);
+
             const status = this.getInt(data);
-            // console.log(status);
 
             if (status !== SESSION_ACK || data.length < 8) {
                 this.settings.verbose && console.log(`Got bad session status = ${status.toString(16)}`, data);
@@ -128,10 +138,12 @@ class NikonClient {
 
             this.msg =  this.append(Buffer.from(utf16string).reverse());
             this.msg =  this.append(Buffer.from(this.settings.hostVersion, 'hex'));
+            this.transactionId = 0;
             this.addDataListener(data =>
                 this
                     .parseSession(data)
                     .then(() => this.initEventsClient())
+                    .then(() => this.getDeviceInfo())
                     .then(resolve)
             );
             this.settings.verbose && console.log('Initializing session...');
@@ -146,7 +158,9 @@ class NikonClient {
         this.eventsListeners.push(listener);
     }
     getInt(data) {
-        return parseInt(data.slice(0, 4).reverse().toString('hex'), 16);
+        const intBuffer = Buffer.from(data.slice(0, 4));
+
+        return parseInt(intBuffer.reverse().toString('hex'), 16);
     }
     handleEventsData(data) {
         if (this.lastEventsAnswer.length === 0)
@@ -168,8 +182,6 @@ class NikonClient {
         }
     }
     handleData(data) {
-        if (this.lastAnswer.length === 0)
-            this.settings.verbose && console.log('Getting response...');
 
         this.lastAnswer = Buffer.concat([
             this.lastAnswer,
@@ -177,14 +189,88 @@ class NikonClient {
         ]);
 
         const messageSize = this.getInt(this.lastAnswer);
+        if (messageSize <= this.lastAnswer.length) {
+            this.settings.verbose && console.log(`Got response ${messageSize} bytes`);
 
-        if (messageSize === this.lastAnswer.length) {
-            this.settings.verbose && console.log(`Got response ${messageSize} bytes ${this.lastAnswer.toString('hex')}`);
-            const message = this.lastAnswer.slice(4);
-            // console.log(message);
-            this.dataListeners.forEach(listener => listener(message));
+            const message = this.lastAnswer.slice(4, messageSize);
+
+            const listeners = this.dataListeners;
             this.dataListeners = [];
+            listeners.forEach(listener => listener(message));
+            this.lastAnswer = Buffer.from(this.lastAnswer.slice(messageSize));
+
+            this.settings.verbose && console.log(`Message buffer has ${this.lastAnswer.length} bytes in the queue`);
         }
+    }
+    getDeviceInfo() {
+        return new Promise((resolve) => {
+            this.settings.verbose && console.log('Gettig device info');
+
+            this.msg = this.append(Buffer.from(MTP_TCPIP_PAYLOAD_ID_COMMAND_REQUEST, 'hex'), Buffer.from(''));
+            this.msg = this.append(Buffer.from(REQUEST_DATA_DIRECTION[MTP_OP_GET_DEVICE_INFO], 'hex'));
+            this.msg = this.append(Buffer.from(MTP_OP_GET_DEVICE_INFO, 'hex'));
+
+            this.transactionId++;
+            this.msg = this.append(Buffer.from(
+                format(this.transactionId.toString(16), 8),
+                'hex'
+            ));
+
+            let parse; parse = (data) => {
+                const dataType = this.getInt(data);
+
+                if (dataType === parseInt(MTP_TCPIP_PAYLOAD_ID_COMMAND_RESPONSE, 16)) {
+                    this.addDataListener(parse);
+                    return;
+                }
+
+
+                if (dataType === parseInt(MTP_TCPIP_PAYLOAD_ID_DATA_PAYLOAD_LAST, 16)) {
+                    resolve(data.slice(8));
+                    return;
+                }
+
+                this.addDataListener(parse);
+            };
+
+            this.addDataListener(parse);
+
+            this.lastAnswer = Buffer.from('');
+            this.msg = this.send();
+
+        }).then((binaryDeviceInfo) => {
+
+            const [ stdVersion, vendorExtId, vendorExtVersion ] = [
+                { from: 0, to: 2 },
+                { from: 2, to: 6 },
+                { from: 6, to: 8 },
+            ].map(({ from, to }) => parseInt(binaryDeviceInfo.slice(from, to).reverse().toString('hex'), 16));
+
+            const vendorExtDesc = this.getCountedString(binaryDeviceInfo.slice(8));
+            const supportedOperations = this.getCountedList(binaryDeviceInfo.slice(13 + vendorExtDesc.length * 2));
+
+            return {
+                stdVersion, vendorExtId, vendorExtVersion, vendorExtDesc, supportedOperations
+            };
+        });
+    }
+    getCountedList(data, size=2) {
+        const length = this.getInt(data);
+
+        const list = [];
+        for (let i = 1; i<length; i++) {
+            const position = 4 + (i - 1)*size;
+            list.push(data.slice(position, position + size).reverse().toString('hex'));
+        }
+        return list;
+    }
+    getCountedString(data) {
+
+        const length = parseInt(data.slice(0, 1).toString('hex'), 16);
+
+        if (length === 0)
+            return '';
+        return data.slice(1, 2*length - 2).filter(code => code > 0).toString();
     }
     openSession(address, port = this.settings.defaultPort) {
         this.settings.verbose && console.log(`Connecting ${address}:${port}`);
