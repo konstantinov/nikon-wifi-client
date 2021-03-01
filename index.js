@@ -246,11 +246,40 @@ class NikonClient {
                 { from: 6, to: 8 },
             ].map(({ from, to }) => parseInt(binaryDeviceInfo.slice(from, to).reverse().toString('hex'), 16));
 
-            const vendorExtDesc = this.getCountedString(binaryDeviceInfo.slice(8));
-            const supportedOperations = this.getCountedList(binaryDeviceInfo.slice(13 + vendorExtDesc.length * 2));
+            let offset = 8;
+            const vendorExtDesc = this.getCountedString(binaryDeviceInfo.slice(offset));
+
+            offset += 5 + vendorExtDesc.length * 2;
+            const supportedOperations = this.getCountedList(binaryDeviceInfo.slice(offset));
+
+
+            offset += 4 + supportedOperations.length * 2;
+            const supportedEvents     = this.getCountedList(binaryDeviceInfo.slice(offset));
+
+            offset += 4 + supportedEvents.length * 2;
+            const devocePropertiesSupport     = this.getCountedList(binaryDeviceInfo.slice(offset));
+
+            offset += 4 + devocePropertiesSupport.length * 2;
+            const captureFormatSupport     = this.getCountedList(binaryDeviceInfo.slice(offset));
+
+            offset += 4 + captureFormatSupport.length * 2;
+
+            const imageFormSupport = this.getCountedList(binaryDeviceInfo.slice(offset));
+
+            offset += 4 + imageFormSupport.length * 2;
+
+            const manufacturer = this.getCountedString(binaryDeviceInfo.slice(offset));
+
+            offset += 3 + manufacturer.length * 2;
+            const model = this.getCountedString(binaryDeviceInfo.slice(offset));
+
+
+            offset += 3 + manufacturer.length * 2;
+            const deviceVersion = this.getCountedString(binaryDeviceInfo.slice(offset));
 
             return {
-                stdVersion, vendorExtId, vendorExtVersion, vendorExtDesc, supportedOperations
+                stdVersion, vendorExtId, vendorExtVersion, vendorExtDesc, supportedOperations, supportedEvents,
+                devocePropertiesSupport, captureFormatSupport, imageFormSupport, manufacturer, model, deviceVersion
             };
         });
     }
@@ -258,7 +287,7 @@ class NikonClient {
         const length = this.getInt(data);
 
         const list = [];
-        for (let i = 1; i<length; i++) {
+        for (let i = 1; i<=length; i++) {
             const position = 4 + (i - 1)*size;
             list.push(data.slice(position, position + size).reverse().toString('hex'));
         }
